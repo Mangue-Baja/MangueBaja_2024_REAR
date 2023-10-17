@@ -5,84 +5,97 @@
 */
 
 /*Novos:
-* REAR: TEMP_MOTOR_ST, FUEL_ST, TEMP_CVT_ST, RPM_ST, RADIO_ST, THROTTLE_ST
-*FRONT: SystemCurrent_ST, THROTTLE_ST, Voltage_ST, IMU_ST, SPEED_ST, DISPLAY_ST
+* REAR:  TEMP_MOTOR_ST, FUEL_ST, TEMP_CVT_ST, SPEED_ST, SystemCurrent_ST, Voltage_ST, THROTTLE_ST
+* FRONT: THROTTLE_ST, RADIO_ST, IMU_ST, RPM_ST, FLAGS_ST, DISPLAY_ST
 */
 #include "mbed.h"
-#include "stats_report.h"
+//#include "stats_report.h"
 /* User libraries */
 #include "defs.h"
 #include "rear_defs.h"
 #include "CANMsg.h"
 #include "MLX90614.h"
 #include "RFM69.h"
+//#include <cstdint>
 
 #define default_addr   (0x00)
 
 //#define MB1                   // uncomment this line if MB1
 #define MB2                 // uncomment this line if MB2
 
-#ifdef MB1
-#define NODE_ID MB1_ID
-#endif
-#ifdef MB2
-#define NODE_ID MB2_ID
-#endif
-
 /* Communication protocols */
 CAN can(PB_8, PB_9, 1000000);
 Serial serial(PA_2, PA_3, 115200);
-RFM69 radio(PB_15, PB_14, PB_13, PB_12, PA_8); 
-//RFM69::RFM69(PinName  PinName mosi, PinName miso, PinName sclk,slaveSelectPin, PinName int)
-I2C i2c(PB_7, PB_6);
-//sda,scl
-MLX90614 mlx(&i2c);
-
+I2C i2c(PB_7, PB_6);   //sda,scl
 /* I/O pins */
+InterruptIn freq_sensor(PB_1, PullNone);
 AnalogIn analog(PA_0);
-AnalogIn fuel_read(PB_1);
+AnalogIn ReadLevel(PA_1);
+AnalogIn ReadVoltage(PA_4);                
+AnalogIn ReadSystemCurrent(PB_0); 
 PwmOut servo(PA_6);
-/* Debug pins */
 DigitalOut led(PC_13);
-DigitalOut dbg1(PB_11);
+/* Debug pins */
+PwmOut signal(PA_7);
+DigitalOut db(PB_11);
 
-/* Debug variables */
-Timer t;
-bool buffer_full = false;
-uint32_t tim1, tim2, imu_last_acq = 0;
+/* Libraries Variables */
+MLX90614 mlx(&i2c);
 
 /* Mbed OS tools */
 Thread eventThread;
 EventQueue queue(1024);
-CircularBuffer <state_t, 2*BUFFER_SIZE> state_buffer;
-CircularBuffer <imu_t*, 20> imu_buffer;
+CircularBuffer<state_t, BUFFER_SIZE> state_buffer;
 Ticker ticker1Hz;
 Ticker ticker5Hz;
-Ticker ticker66mHz;
+Ticker ticker200mHz;
+Ticker ticker500mHz;
+Ticker ticker250mHz;
 
+/* Debug variables */
+Timer t;
+bool buffer_full = false;
 /* Global variables */
 state_t current_state = IDLE_ST;
-packet_t data;                    // Create package for radio comunication
-bool switch_clicked = false;
-float V_termistor=0, rpm_hz;
+uint8_t pulse_counter = 0;
 uint8_t switch_state = 0x00;
-uint8_t MeasureCVTtemperature;
+uint16_t speed_radio = 0; 
+//uint16_t SignalVacsI0;
+uint64_t current_period = 0, last_count = 0, last_acq = 0;
+float calc1, calc2;
+float V_termistor = 0;
+float speed_hz = 0;
+//float Calculate_VacsI0 = 0.0;
+bool switch_clicked = false;
 
 /* Interrupt handlers */
 void canHandler();
 /* Interrupt services routine */
 void canISR();
+void frequencyCounterISR();
 void ticker1HzISR();
 void ticker5HzISR();
-void ticker66mHzISR();
+void ticker200mHzISR();
+void ticker500mHzISR();
+void ticker250mHzISR();
 /* General functions*/
 void setupInterrupts();
+void initPWM();
 void filterMessage(CANMsg msg);
-float moving_averages();
-uint8_t mode();
-void initRadio();
-double CVT_Temperature();
-void writeServo(uint8_t state);
+float CVT_Temperature();
+float Level_Moving_Average();
+float Voltage_moving_average();
+float SystemCurrent_moving_average();
+void writeServo(uint8_t MODE);
+
+/* CAN Variables */
+uint8_t temp_motor;                   // 1by
+uint16_t fuel;                        // 2by
+uint16_t speed_display = 0;           // 2by
+uint8_t MeasureCVTtemperature = 0;    // 1by
+float MeasureVoltage = 0.0;           // 4by
+uint8_t SOC = 0;                      // 1by
+float MeasureSystemCurrent = 0.0;     // 4by
 
 int main ()
 {
@@ -91,119 +104,426 @@ int main ()
     /* Initialization */
     t.start();
     eventThread.start(callback(&queue, &EventQueue::dispatch_forever));
-    initRadio();
+    initPWM();
     setupInterrupts();
 
     while (true)
     {
-        if (state_buffer.full()) 
+        if(state_buffer.full()) 
         {
             buffer_full = true;
-            led = 0;
+            //led = 0;
+            state_buffer.pop(current_state);
         } else {
-            led = 1;
+            //led = 1;
             buffer_full = false;
-            if (!state_buffer.empty())
-            {
+            if(!state_buffer.empty())
                 state_buffer.pop(current_state);
-            } else {
+            else
                 current_state = IDLE_ST;
-            }
         }
 
-        switch (current_state) 
+        //serial.printf("current state = %d\r\n", current_state);
+        //if(current_state==0) serial.printf("IDLE_ST\n");
+        //if(current_state==1) serial.printf("TEMP_MOTOR_ST\n");
+        //if(current_state==2) serial.printf("TEMP_CVT_ST\n");
+        //if(current_state==3) serial.printf("FUEL_ST\n");
+        //if(current_state==4) serial.printf("SPEED_ST\n");
+        //if(current_state==5) serial.printf("VOLTAGE_ST\n");
+        //if(current_state==6) serial.printf("SYSTEM_CURRENT_ST\n");
+        //if(current_state==7) serial.printf("THROTTLE_ST\n");
+        //if(current_state==8) serial.printf("DEBUG_ST\n");
+
+        switch(current_state) 
         {
             case IDLE_ST:
+                //serial.printf("idle\r\n");
                 //Thread::wait(1);
                 break;
 
             case TEMP_MOTOR_ST:
-                //serial.printf("t");
-                V_termistor = VCC*analog.read();
+                //serial.printf("motor\r\n");
+                V_termistor = ADCVoltageLimit*analog.read();
 
-                data.tempMOTOR = ((float) 115.5*(exp(-0.02187*(V_termistor*R_TERM)/(VCC - V_termistor))) + 85.97*(exp(-0.00146*(V_termistor*R_TERM)/(VCC - V_termistor))));
+                calc1 = (float)115.5*(exp(-0.02187*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
+                calc2 = (float)85.97*(exp(-0.00146*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
+
+                if(calc1!=0 && calc2!=0)
+                    temp_motor = (uint8_t)(calc1 + calc2);
+                else 
+                    temp_motor = 1; // Debug temperature for sure the state is ok!
 
                 /* Send temperature data */
                 txMsg.clear(TEMPERATURE_ID);
-                txMsg << data.tempMOTOR;
+                txMsg << temp_motor;
                 can.write(txMsg);
-                break;
 
-            case FUEL_ST:
-                data.fuel=mode();
-
-                /*Can communication*/
-                txMsg.clear(FUEL_ID);
-                txMsg << data.fuel;
-                can.write(txMsg);
                 break;
 
             case TEMP_CVT_ST:
-                MeasureCVTtemperature = (uint8_t)CVT_Temperature(); 
+                //serial.printf("cvt\r\n");
 
+                MeasureCVTtemperature = (uint8_t)CVT_Temperature(); 
                 //MeasureCVTtemperature = 90;
-                /*Send temperature data*/
-                txMsg.clear(TempCVT_ID);
+
+                /* Send CVT message */
+                txMsg.clear(CVT_ID);
                 txMsg << MeasureCVTtemperature;
+                //can.write(txMsg);
+                if(can.write(txMsg))
+                    led = !led;
+                
+                break;
+
+            case FUEL_ST:
+                //serial.printf("fuel\r\n");
+                //fuel = 100;
+
+                fuel = (uint16_t)Level_Moving_Average();
+
+                /* Send fuel data */
+                txMsg.clear(FUEL_ID);
+                txMsg << fuel;
                 can.write(txMsg); 
 
                 break;
 
-            case RPM_ST:
-                rpm_hz=1;
+            case SPEED_ST:
+                //serial.printf("s\n");
+                //dbg2 = !dbg2;
+                freq_sensor.fall(NULL);         // disable interrupt
+
+                if (current_period!=0)
+                {
+                    speed_hz = 1000000*((float)(pulse_counter)/current_period);    //calculates frequency in Hz
+                } else {
+                    speed_hz = 0;
+                }
+                #ifdef MB1
+                    speed_display = ((float)(3.6*PI*WHEEL_DIAMETER*speed_hz)/WHEEL_HOLES_NUMBER_MB1);    // make conversion hz to km/h
+                #endif
+
+                #ifdef MB2
+                    speed_display = ((float)(3.6*PI*WHEEL_DIAMETER*speed_hz)/WHEEL_HOLES_NUMBER_MB2);    // make conversion hz to km/h
+                #endif
+
+                speed_radio = ((float)((speed_display)/60.0)*65535);
+
+                pulse_counter = 0;                          
+                current_period = 0;                         //|-> reset pulses related variables
+                last_count = t.read_us();        
+                freq_sensor.fall(&frequencyCounterISR);     // enable interrupt
+
+                /* Send speed data */
+                txMsg.clear(SPEED_ID);
+                txMsg << speed_display;
+                if(can.write(txMsg))
+                    led = !led;
+                //state_buffer.push(DEBUG_ST);                // debug
+
                 break;
 
-            case RADIO_ST:
-                imu_t* temp_imu;
+            case VOLTAGE_ST:
+                //serial.printf("voltage\r\n");
+                
+                MeasureVoltage = Voltage_moving_average();
+            
+                /*
+                a = -8E-8*pow(MeasureVoltage,4);
+                b = 3E-5*pow(MeasureVoltage,3);
+                c = -0.0026*pow(MeasureVoltage,2);
+                d = -0.4058*MeasureVoltage;
+                SOC = (uint8_t)(a + b + c + d + 100);
+                */
 
-                if (!imu_buffer.empty()) {
-                        imu_buffer.pop(temp_imu);
-                        memcpy(&data.imu, temp_imu, 4*sizeof(imu_t));
-                        data.rpm = ((uint16_t)rpm_hz * 60)*65536.0/5000.0;
-                        #ifdef MB1
-                            radio.send((uint8_t)BOXRADIO_ID1, &data, sizeof(packet_t), true, false);     // request ACK with 1 retry (waitTime = 40ms)
-                        #endif
-                        #ifdef MB2
-                            radio.send((uint8_t)BOXRADIO_ID2, &data, sizeof(packet_t), true, false);     // request ACK with 1 retry (waitTime = 40ms)
-                            dbg1 = !dbg1;
-                        #endif
-                    } else if (t.read_ms() - imu_last_acq > 500) {
-                        memset(&data.imu, 0, 4*sizeof(imu_t));
-                        data.rpm = ((uint16_t)rpm_hz * 60)*65536.0/5000.0;
-                        #ifdef MB1
-                            radio.send((uint8_t)BOXRADIO_ID1, &data, sizeof(packet_t), true, false);     // request ACK with 1 retry (waitTime = 40ms)
-                        #endif
-                        #ifdef MB2
-                            radio.send((uint8_t)BOXRADIO_ID2, &data, sizeof(packet_t), true, false);     // request ACK with 1 retry (waitTime = 40ms)
-                        #endif
-                    }
+                SOC = (uint8_t)(((MeasureVoltage - 9.6)/3)*100); /* 12.6 - 9.6 = 3 */
+
+                //Led = !Led;
+                //SOC = 100;
+
+                /* Send voltage message */
+                //MeasureVoltage100 = 100 * (uint8_t ) MeasureVoltage; 
+                txMsg.clear(VOLTAGE_ID);
+                txMsg << MeasureVoltage;
+                //can.write(txMsg);
+                if(can.write(txMsg)) 
+                {
+                    /* Send SOC message if voltage successfully */
+                    led = !led;
+
+                    txMsg.clear(SOC_ID);
+                    txMsg << SOC;
+                    can.write(txMsg);
+                }
+
+                break;
+
+            case SYSTEM_CURRENT_ST:
+                //serial.printf("current\r\n");
+                //SignalVacsI0 = ReadSystemCurrent.read_u16();
+                //Calculate_VacsI0 = (SignalVacsI0*(ADCVoltageLimit/65535.0));
+                // Calculate_VacsI0 = SignalVacsI0 ;
+                MeasureSystemCurrent = SystemCurrent_moving_average();
+                //MeasureSystemCurrent = MeasureSystemCurrent * 1.23885;
+                
+                /* Send current message */
+                txMsg.clear(CURRENT_ID);
+                txMsg << MeasureSystemCurrent;
+                if(can.write(txMsg))
+                    led = !led;
+
                 break;
 
             case THROTTLE_ST:
-                if (switch_clicked) {
-                    if (rpm_hz != 0) {
-                        writeServo(CHOKE_MODE);
-                    }
-                    else {
-                        writeServo(switch_state);
-                    }
+                //serial.printf("throttle state\r\n");
+                
+                if(switch_clicked)
+                {
+                    writeServo(switch_state);
                     switch_clicked = false;
                 }
 
                 break;
 
             case DEBUG_ST:
+                //serial.printf("Debug state\r\n");
+                //serial.printf("\r\nTemperature Motor = %d\r\n", temp_motor);
+                //serial.printf("switch state = %d", switch_state);
                 break;
         }
     }
 }
 
+/* General functions */
+void initPWM()
+{
+    servo.period_ms(20);                        // set signal frequency to 50Hz
+    servo.write(0);                          // disables servo
+    signal.period_ms(32);                       // set signal frequency to 1/0.032Hz
+    signal.write(0.5f);                         // dutycycle 50%
+}
+
 void setupInterrupts()
 {
     can.attach(&canISR, CAN::RxIrq);
+    freq_sensor.fall(&frequencyCounterISR); // enable interrupt
     ticker1Hz.attach(&ticker1HzISR, 1.0);
     ticker5Hz.attach(&ticker5HzISR, 0.2);
-    ticker66mHz.attach(&ticker66mHzISR, 4);
+    //ticker500mHz.attach(&ticker500mHzISR, 2);
+}
+
+void filterMessage(CANMsg msg)
+{
+    led = !led;
+
+    if(msg.id==THROTTLE_ID)
+    {
+        switch_clicked = true;
+        msg >> switch_state;
+        state_buffer.push(THROTTLE_ST);
+    }
+}
+
+float CVT_Temperature()
+{
+    int i, j;
+    float AverageObjectTemp, AverageEnviromentTemp = 0.0;
+    float temp_amb, med_amb, x_amb;
+    float temp_obj, med_obj, x_obj; 
+
+    //teste comunicação i2c
+    char ucdata_write[2];
+
+ if(!i2c.write((default_addr|0x00), ucdata_write, 1, 0)) // Check for ACK from i2c Device
+ {
+    for(j = 0; j < (CVTsample); j++) 
+    { 
+        for(i = 0; i < (CVTsample) ; i++) 
+        {              
+            // temp_amb = mlx.read_temp(0);
+            temp_obj = mlx.read_temp(1);
+            x_obj += temp_obj;
+            med_obj = x_obj/(float)CVTsample;
+
+            if(med_obj > AverageObjectTemp)
+                AverageObjectTemp = med_obj;
+        }
+    }
+ } else {
+    AverageObjectTemp = 0;
+ }
+
+    //return value;
+    return AverageObjectTemp/(float)CVTsample; // I don't know why we need divide by sample, but works.
+}
+
+float Level_Moving_Average()
+{
+    float AverageLevel=0;
+    float Vout, P;
+    float med_level, x_level;
+
+    for(uint8_t i = 0; i < LevelSample; i++)
+    {
+        for(uint8_t j = 0; j < LevelSample; j++)
+        {
+            Vout = (ReadLevel.read_u16()*ADCVoltageLimit)/65535.0; 
+            P = ((7171*Vout)-5566)*DENSITY;
+
+            x_level += P;                
+        }
+        med_level = x_level/(float)LevelSample;
+
+        if(med_level > AverageLevel)
+            AverageLevel = med_level;
+    }
+
+    return AverageLevel/(float)LevelSample; // I don't know why we need divide by sample, but works.
+}
+
+float Voltage_moving_average()
+{
+    int i, j;
+    float value, aux, ADCvoltage , InputVoltage, AverageVoltage = 0.0;
+    uint16_t SignalVoltage = 0.0;
+    //float Calibration_Factor = 0.987;
+    //float Calibration_Factor = 0.715;
+    float Calibration_Factor = 1;
+    float R1_Value = 30000.0;               // VALOR DO RESISTOR 1 DO DIVISOR DE TENSÃO
+    float R2_Value = 7500.0;                // VALOR DO RESISTOR 2 DO DIVISOR DE TENSÃO
+
+
+    for(j = 0; j < (sample); j++) 
+    { 
+        for(i = 0; i < sample ; i++) 
+        {
+
+            SignalVoltage = ReadVoltage.read_u16();
+            InputVoltage = (SignalVoltage * ADCVoltageLimit) / 65535.0;
+            ADCvoltage = Calibration_Factor*(InputVoltage / (R2_Value/(R1_Value + R2_Value)));
+            aux += ADCvoltage;
+        }
+        
+            value = aux/(float)sample;
+        
+            if(value > AverageVoltage) 
+                AverageVoltage = value;
+    }
+
+    //return value;
+    return AverageVoltage/(double)sample; // I don't know why we need divide by sample, but works.
+}
+
+float SystemCurrent_moving_average()
+{   
+    /*
+    #ifdef ECU_MAIN
+        float VacsI0 = 1.558008;   //BMU SOLDADA
+    #else
+        float VacsI0 = 1.57602;     // BMU Socket
+    #endif
+    */
+    int i, j;
+    float value, ux, InputSystemCurrent, AverageSystemCurrent, ADCSystemCurrent = 0.0;
+    uint16_t SignalCurrent = 0.0;
+    // float Current_Calibration_Factor = 1.746;
+    float Current_Calibration_Factor = 1.631;
+    float VacsI0 = 1.558008;
+
+    for(j = 0; j < (sample); j++)
+    { 
+        for(i = 0; i < (sample)*4 ; i++) 
+        {
+            SignalCurrent = ReadSystemCurrent.read_u16();
+            InputSystemCurrent = (SignalCurrent * (ADCVoltageLimit / 65535.0));
+            ADCSystemCurrent = (VacsI0 - InputSystemCurrent) / 0.185;
+            ux += ADCSystemCurrent;
+        }       
+            
+        value = (ux * Current_Calibration_Factor)/((float)sample*4);
+        //value = (ux * 1.746)  / ((double)sample*4);
+    }
+
+    //return value;
+    return value/(float)sample; // I don't know why we need divide by sample, but works.
+}
+void writeServo(uint8_t MODE)
+{
+    switch(MODE) 
+    {
+        case MID_MODE:
+            servo.pulsewidth_us(SERVO_MID);
+            //data.flags &= ~(0x03); // reset run and choke flags
+            break;
+
+        case RUN_MODE:  
+            servo.pulsewidth_us(SERVO_RUN);
+            //data.flags |= RUN_MODE;    // set run flag
+            break;
+
+        case CHOKE_MODE:
+            servo.pulsewidth_us(SERVO_CHOKE);
+            //data.flags |= CHOKE_MODE;    // set choke flag
+            break;
+
+        default:
+            //serial.printf("Choke/run error\r\n");
+            break;
+    }
+}
+
+/* Interrupt services routine */
+void canISR()
+{
+    CAN_IER &= ~CAN_IER_FMPIE0;                 // disable RX interrupt
+    queue.call(&canHandler);                    // add canHandler() to events queue
+}
+
+void frequencyCounterISR()
+{
+    //db = !db;
+    pulse_counter++;
+    current_period += t.read_us() - last_count;
+    last_count = t.read_us();        
+}
+
+void ticker1HzISR()
+{
+    state_buffer.push(TEMP_MOTOR_ST);
+    state_buffer.push(TEMP_CVT_ST);
+
+    state_buffer.push(VOLTAGE_ST);
+    state_buffer.push(FUEL_ST);
+
+    state_buffer.push(SYSTEM_CURRENT_ST);
+
+    ticker200mHz.attach(&ticker200mHzISR, 5);
+    ticker250mHz.attach(&ticker250mHzISR, 4);
+    ticker500mHz.attach(&ticker500mHzISR, 2);
+
+    ticker1Hz.detach();
+}
+
+void ticker5HzISR()
+{
+    state_buffer.push(SPEED_ST);
+}
+
+void ticker200mHzISR()
+{
+    state_buffer.push(VOLTAGE_ST);
+    state_buffer.push(FUEL_ST);
+}
+
+void ticker250mHzISR()
+{
+    state_buffer.push(TEMP_MOTOR_ST);
+    state_buffer.push(TEMP_CVT_ST);
+}
+
+void ticker500mHzISR()
+{
+    state_buffer.push(SYSTEM_CURRENT_ST);
 }
 
 /* Interrupt handlers */
@@ -214,220 +534,4 @@ void canHandler()
     can.read(rxMsg);
     filterMessage(rxMsg);
     CAN_IER |= CAN_IER_FMPIE0;                  // enable RX interrupt
-}
-
-/* Interrupt services routine */
-void canISR()
-{
-    CAN_IER &= ~CAN_IER_FMPIE0;                 // disable RX interrupt
-    queue.call(&canHandler);                    // add canHandler() to events queue
-}
-
-void ticker1HzISR()
-{
-    state_buffer.push(TEMP_MOTOR_ST);
-    state_buffer.push(FUEL_ST);
-}
-
-void ticker5HzISR()
-{
-    state_buffer.push(RPM_ST);
-    state_buffer.push(RADIO_ST);
-}
-
-void ticker66mHzISR()
-{
-    state_buffer.push(TEMP_CVT_ST);
-}
-
-/* General functions*/
-void filterMessage(CANMsg msg)
-{
-    led = !led;
-    //serial.printf("alalala1");
-
-    if (msg.id == THROTTLE_ID) {
-        switch_clicked = true;
-        state_buffer.push(THROTTLE_ST);
-        msg >> switch_state;
-    } else if (msg.id == IMU_ACC_ID) {
-        imu_last_acq = t.read_ms();
-        msg >> data.imu.acc_x >> data.imu.acc_y >> data.imu.acc_z;
-        //msg >> data.imu.acc_x >> data.imu.acc_y >> data.imu.acc_z;
-    } else if (msg.id == IMU_DPS_ID) {
-        msg >> data.imu.dps_x >> data.imu.dps_y >> data.imu.dps_z;
-        //msg >> data.imu.dps_x >> data.imu.dps_y >> data.imu.dps_z;
-        /*if (imu_counter < 3) {
-            imu_counter++;
-        } else if (imu_counter == 3) {
-            imu_buffer.push(data.imu);
-            imu_counter = 0;
-        }*/
-    } else if (msg.id == SPEED_ID) {
-        msg >> data.speed;
-        //serial.printf("alalala2");
-        //serial.printf("\r\nspeed = %d\r\n",data.data_10hz[packet_counter[N_SPEED]].speed);
-        //d10hz_buffer.push(data.data_10hz);
-    } else if (msg.id == Voltage_ID) {
-        msg >> data.voltage;
-    } else if (msg.id == SOC_ID) {
-        msg >> data.soc;
-    }
-}
-
-uint8_t mode() 
-{
-    const int T=20;
-    uint8_t cont[T],current_level;
-    float R_final_average[T];
-    float moda, R_final, R_final_mode;
-    float count = 15.00; // o valor deve aparecer 15 vezes em 20 para ser lido
-
-    for (int i=1; i<T; i++) { 
-    // mover enquanto acrescenta ao vetor (shift left)
-      R_final = moving_averages();
-      R_final_average[0] = R_final;
-      R_final_average[i] = R_final_average[i-1];
-    }
-
-    for(int i=0; i<T; i++) {                 
-        for(int j=i+1; j<T; j++) {
-            if(R_final_average[i]==R_final_average[j]) {  // compara os valores
-                cont[i]++;
-                if(cont[i] > count) {  // se o valor aparecer em 15 das 20 vezes
-                moda = R_final_average[i];
-                }
-            } 
-        }
-    cont[i] = 0; // reseta a lista
-    }
-    R_final_mode = moda;
-
-    // respostas possíveis
-
-  if (R_final_mode >= 175) { 
-    // Acima de 60% no tanque (início da medição), 5.68L
-      current_level = 100.00;
-    } 
-  else if (115 <= R_final_mode && R_final_mode < 175) {
-    // Cerca de 50% do tanque, 2.84L
-        current_level = 50.00;
-    }
-  else if (75 <= R_final_mode && R_final_mode < 115) { 
-    // Cerca de 35% do tanque, 2L
-        current_level = 35.00;
-    } 
-  else if (35 <= R_final_mode && R_final_mode < 75) {
-    // Cerca de 25% do tanque, 1.42L
-        current_level = 25.00;
-    }
-  else { 
-    // Alcance da reserva, cerca de 18% do tanque, 1L
-        current_level = 18.00;
-    }
-
-    return current_level;
-}
-
-float moving_averages() {
-    // 2 filtros no formato de médias móveis
-    uint8_t n=30;
-    int R_average[n]; // vetor
-    uint16_t read=0;
-    float V, Rx, Rx_acc, R, R_acc, r_final=0.0;
-
-    for (int i=0; i<(FUELsample); i++) {
-      read = fuel_read.read_u16();       // Saída no Serial
-      V = (read * ADCVoltageLimit) / 65535.0; // V = Voltagem da Boia
-      Rx = (120 * V) / (3.3 - V); // Rx = Resistência da Boia
-      Rx_acc += Rx;               // Rx_acc = acumulador do filtro 1
-    }
-      R = Rx_acc / (FUELsample); // faz a média
-      Rx_acc = 0.0; // reseta o acc 
-      //thread_sleep_for(200);
-
-    for (int i=1; i<n; i++) { // mover pelo vetor (shift left)
-      R_average[0] = R;
-      R_average[i] = R_average[i-1];
-    }
-    
-    for (int j=0; j<n; j++) { // soma os valores no acumulador
-      R_acc += R_average[j]; 
-    }
-    r_final = R_acc / 30;  // faz a média
-    R_acc = 0.0;   // reseta o acumulador 
-    
-    return r_final;
-}
-
-void initRadio()
-{
-    radio.initialize(FREQUENCY_915MHZ, NODE_ID, NETWORK_ID);
-    radio.encrypt(0);
-    radio.setPowerLevel(31);
-    radio.setHighPower();
-}
-
-double CVT_Temperature()
-{
-    int i,j;
-    double AverageObjectTemp, AverageEnviromentTemp = 0.0;
-    double temp_amb,med_amb,x_amb;
-    double temp_obj,med_obj,x_obj; 
-
-    //teste comunicação i2c
-    char ucdata_write[2];
-
- if (!i2c.write((default_addr|0x00), ucdata_write, 1, 0))
- {      // Check for ACK from i2c Device
-
-    for(j = 0; j < (CVTsample); j++){ 
-
-        for(i = 0; i < (CVTsample) ; i++){
-                      
-            // temp_amb = mlx.read_temp(0);
-           
-
-                temp_obj = mlx.read_temp(1);
-                x_obj += temp_obj;
-                med_obj = x_obj/ (double)CVTsample;
-    
-                if(med_obj > AverageObjectTemp){
-                AverageObjectTemp = med_obj;
-                 }
-            }
-        }
-    } else {
-        AverageObjectTemp = 0;
-    }
-
-    //return value;
-    return AverageObjectTemp/(double)CVTsample; // I don't know why we need divide by sample, but works.
-}
-
-void writeServo(uint8_t state)
-{
-    data.flags &= ~(0x07);         // reset servo-related flags
-
-    switch (state) {
-        case MID_MODE:
-            //dbg3 = !dbg3;
-            servo.pulsewidth_us(SERVO_MID);
-            data.flags &= ~(0x03); // reset run and choke flags
-            break;
-        case RUN_MODE:
-            //dbg3 = !dbg3;
-            servo.pulsewidth_us(SERVO_RUN);
-            data.flags |= RUN_MODE;    // set run flag
-            break;
-        case CHOKE_MODE:
-            //dbg3 = !dbg3;
-            servo.pulsewidth_us(SERVO_CHOKE);
-            data.flags |= CHOKE_MODE;    // set choke flag
-            break;
-        default:
-            //serial.printf("Choke/run error\r\n");
-            data.flags |= 0x04;    // set servo error flag
-            break;
-    }
 }
