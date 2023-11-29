@@ -1,35 +1,40 @@
-/*IDLE_ST E DEBUG_ST obrigatorios
-* REAR: TEMP_MOTOR_ST, FUEL_ST, RPM_ST, THROTTLE_ST, RADIO_ST
-* FRONT: SLOWACQ_ST, IMU_ST, SPEED_ST, THROTTLE_ST, DISPLAY_ST
-* BMU: Voltage_ST, TEMP_CVT_ST, SystemCurrent_ST
+/*  
+    IDLE_ST E DEBUG_ST obrigatorios
+        * REAR: TEMP_MOTOR_ST, FUEL_ST, RPM_ST, THROTTLE_ST, RADIO_ST
+        * FRONT: SLOWACQ_ST, IMU_ST, SPEED_ST, THROTTLE_ST, DISPLAY_ST
+        * BMU: Voltage_ST, TEMP_CVT_ST, SystemCurrent_ST
 */
 
-/*Novos:
-* REAR:  TEMP_MOTOR_ST, FUEL_ST, TEMP_CVT_ST, SPEED_ST, SystemCurrent_ST, Voltage_ST, THROTTLE_ST
-* FRONT: THROTTLE_ST, RADIO_ST, IMU_ST, RPM_ST, FLAGS_ST, DISPLAY_ST
+/*
+    Novos:
+        * REAR:  TEMP_MOTOR_ST, FUEL_ST, TEMP_CVT_ST, SPEED_ST, SystemCurrent_ST, Voltage_ST, THROTTLE_ST
+        * FRONT: THROTTLE_ST, RADIO_ST, IMU_ST, RPM_ST, FLAGS_ST, DISPLAY_ST
 */
 #include "mbed.h"
-//#include "stats_report.h"
-/* User libraries */
-#include "defs.h"
-#include "rear_defs.h"
+#include "stats_report.h"
+/* Instances Libraries */
 #include "CANMsg.h"
 #include "MLX90614.h"
-#include "RFM69.h"
-//#include <cstdint>
+/* User Libraries */
+#include "defs.h"
+#include "rear_defs.h"
 
-#define default_addr   (0x00)
+#define default_addr (0x00)
 
 //#define MB1                   // uncomment this line if MB1
-#define MB2                 // uncomment this line if MB2
+//#define MB2                 // uncomment this line if MB2
+
+//#define FRONT_WHEEL
+#define REAR_WHEEL
 
 /* Communication protocols */
-CAN can(PB_8, PB_9, 1000000);
-Serial serial(PA_2, PA_3, 115200);
-I2C i2c(PB_7, PB_6);   //sda,scl
+CAN can(PB_8, PB_9, 1000000);       //RD, TD, Frequency
+Serial serial(PA_2, PA_3, 115200);  //TX, RX, Baudrate
+I2C i2c(PB_7, PB_6);                //SDA, SCl
+
 /* I/O pins */
 InterruptIn freq_sensor(PB_1, PullNone);
-AnalogIn analog(PA_0);
+AnalogIn ReadTempMotor(PA_0);
 AnalogIn ReadLevel(PA_1);
 AnalogIn ReadVoltage(PA_4);                
 AnalogIn ReadSystemCurrent(PB_0); 
@@ -39,48 +44,47 @@ DigitalOut led(PC_13);
 PwmOut signal(PA_7);
 DigitalOut db(PB_11);
 
-/* Libraries Variables */
+/* Instances Variables */
 MLX90614 mlx(&i2c);
 
 /* Mbed OS tools */
 Thread eventThread;
 EventQueue queue(1024);
 CircularBuffer<state_t, BUFFER_SIZE> state_buffer;
+Ticker ticker200mHz;
+Ticker ticker250mHz;
+Ticker ticker500mHz;
 Ticker ticker1Hz;
 Ticker ticker5Hz;
-Ticker ticker200mHz;
-Ticker ticker500mHz;
-Ticker ticker250mHz;
 
 /* Debug variables */
 Timer t;
 bool buffer_full = false;
 /* Global variables */
 state_t current_state = IDLE_ST;
+//float Calculate_VacsI0 = 0.0;
+bool switch_clicked = false;
 uint8_t pulse_counter = 0;
 uint8_t switch_state = 0x00;
-uint16_t speed_radio = 0; 
 //uint16_t SignalVacsI0;
 uint64_t current_period = 0, last_count = 0, last_acq = 0;
 float calc1, calc2;
 float V_termistor = 0;
 float speed_hz = 0;
-//float Calculate_VacsI0 = 0.0;
-bool switch_clicked = false;
 
 /* Interrupt handlers */
 void canHandler();
 /* Interrupt services routine */
 void canISR();
 void frequencyCounterISR();
+void ticker200mHzISR();
+void ticker250mHzISR();
+void ticker500mHzISR();
 void ticker1HzISR();
 void ticker5HzISR();
-void ticker200mHzISR();
-void ticker500mHzISR();
-void ticker250mHzISR();
 /* General functions*/
-void setupInterrupts();
 void initPWM();
+void setupInterrupts();
 void filterMessage(CANMsg msg);
 float CVT_Temperature();
 float Level_Moving_Average();
@@ -143,7 +147,7 @@ int main ()
 
             case TEMP_MOTOR_ST:
                 //serial.printf("motor\r\n");
-                V_termistor = ADCVoltageLimit*analog.read();
+                V_termistor = ADCVoltageLimit*ReadTempMotor.read();
 
                 calc1 = (float)115.5*(exp(-0.02187*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
                 calc2 = (float)85.97*(exp(-0.00146*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
@@ -153,7 +157,7 @@ int main ()
                 else 
                     temp_motor = 1; // Debug temperature for sure the state is ok!
 
-                /* Send temperature data */
+                /* Send Motor Temperature data */
                 txMsg.clear(TEMPERATURE_ID);
                 txMsg << temp_motor;
                 can.write(txMsg);
@@ -166,7 +170,7 @@ int main ()
                 MeasureCVTtemperature = (uint8_t)CVT_Temperature(); 
                 //MeasureCVTtemperature = 90;
 
-                /* Send CVT message */
+                /* Send CVT Temperature message */
                 txMsg.clear(CVT_ID);
                 txMsg << MeasureCVTtemperature;
                 //can.write(txMsg);
@@ -181,7 +185,7 @@ int main ()
 
                 fuel = (uint16_t)Level_Moving_Average();
 
-                /* Send fuel data */
+                /* Send Fuel data */
                 txMsg.clear(FUEL_ID);
                 txMsg << fuel;
                 can.write(txMsg); 
@@ -199,27 +203,28 @@ int main ()
                 } else {
                     speed_hz = 0;
                 }
-                #ifdef MB1
-                    speed_display = ((float)(3.6*PI*WHEEL_DIAMETER*speed_hz)/WHEEL_HOLES_NUMBER_MB1);    // make conversion hz to km/h
+
+                #ifdef FRONT_WHEEL
+                    speed_display = ((float)(3.6*PI*WHEEL_DIAMETER*speed_hz)/WHEEL_HOLES_NUMBER_FRONT);    // make conversion hz to km/h
                 #endif
 
-                #ifdef MB2
-                    speed_display = ((float)(3.6*PI*WHEEL_DIAMETER*speed_hz)/WHEEL_HOLES_NUMBER_MB2);    // make conversion hz to km/h
+                #ifdef REAR_WHEEL
+                    speed_display = ((float)(3.6*PI*WHEEL_DIAMETER*speed_hz)/WHEEL_HOLES_NUMBER_REAR);    // make conversion hz to km/h
                 #endif
 
-                speed_radio = ((float)((speed_display)/60.0)*65535);
+                //speed_radio = ((float)((speed_display)/60.0)*65535);
 
-                pulse_counter = 0;                          
-                current_period = 0;                         //|-> reset pulses related variables
-                last_count = t.read_us();        
-                freq_sensor.fall(&frequencyCounterISR);     // enable interrupt
-
-                /* Send speed data */
+                /* Send Speed data */
                 txMsg.clear(SPEED_ID);
                 txMsg << speed_display;
                 if(can.write(txMsg))
                     led = !led;
-                //state_buffer.push(DEBUG_ST);                // debug
+
+                /* re-init the counter */
+                pulse_counter = 0;                          
+                current_period = 0;                         //|-> reset pulses related variables
+                last_count = t.read_us();        
+                freq_sensor.fall(&frequencyCounterISR);     // enable interrupt
 
                 break;
 
@@ -241,14 +246,14 @@ int main ()
                 //Led = !Led;
                 //SOC = 100;
 
-                /* Send voltage message */
+                /* Send Voltage message */
                 //MeasureVoltage100 = 100 * (uint8_t ) MeasureVoltage; 
                 txMsg.clear(VOLTAGE_ID);
                 txMsg << MeasureVoltage;
                 //can.write(txMsg);
                 if(can.write(txMsg)) 
                 {
-                    /* Send SOC message if voltage successfully */
+                    /* Send SOC(State of Charge) message if voltage successfully */
                     led = !led;
 
                     txMsg.clear(SOC_ID);
@@ -305,8 +310,10 @@ void initPWM()
 
 void setupInterrupts()
 {
+    /* General Interrupts */
     can.attach(&canISR, CAN::RxIrq);
     freq_sensor.fall(&frequencyCounterISR); // enable interrupt
+    /* Tickers */
     ticker1Hz.attach(&ticker1HzISR, 1.0);
     ticker5Hz.attach(&ticker5HzISR, 0.2);
     //ticker500mHz.attach(&ticker500mHzISR, 2);
@@ -368,9 +375,15 @@ float Level_Moving_Average()
         for(uint8_t j = 0; j < LevelSample; j++)
         {
             Vout = (ReadLevel.read_u16()*ADCVoltageLimit)/65535.0; 
-            P = ((7171*Vout)-5566)*DENSITY;
+            if(Vout < SensorADClimit)
+            {
+                
+                P = ((7171*Vout)-5566)*DENSITY;
 
-            x_level += P;                
+                x_level += P;
+            } else {
+                med_level = 0;
+            }                
         }
         med_level = x_level/(float)LevelSample;
 
@@ -447,6 +460,7 @@ float SystemCurrent_moving_average()
     //return value;
     return value/(float)sample; // I don't know why we need divide by sample, but works.
 }
+
 void writeServo(uint8_t MODE)
 {
     switch(MODE) 
@@ -487,6 +501,23 @@ void frequencyCounterISR()
     last_count = t.read_us();        
 }
 
+void ticker200mHzISR()
+{
+    state_buffer.push(VOLTAGE_ST);
+    state_buffer.push(FUEL_ST);
+}
+
+void ticker250mHzISR()
+{
+    state_buffer.push(TEMP_MOTOR_ST);
+    state_buffer.push(TEMP_CVT_ST);
+}
+
+void ticker500mHzISR()
+{
+    state_buffer.push(SYSTEM_CURRENT_ST);
+}
+
 void ticker1HzISR()
 {
     state_buffer.push(TEMP_MOTOR_ST);
@@ -507,23 +538,6 @@ void ticker1HzISR()
 void ticker5HzISR()
 {
     state_buffer.push(SPEED_ST);
-}
-
-void ticker200mHzISR()
-{
-    state_buffer.push(VOLTAGE_ST);
-    state_buffer.push(FUEL_ST);
-}
-
-void ticker250mHzISR()
-{
-    state_buffer.push(TEMP_MOTOR_ST);
-    state_buffer.push(TEMP_CVT_ST);
-}
-
-void ticker500mHzISR()
-{
-    state_buffer.push(SYSTEM_CURRENT_ST);
 }
 
 /* Interrupt handlers */

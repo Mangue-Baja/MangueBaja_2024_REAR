@@ -4,17 +4,20 @@
 /* Moving Average Definitions */
 //#define VCC                 3.3
 #define ADCVoltageLimit     3.3
+#define SensorADClimit      3.2
 #define R_TERM              1000
 #define CVTsample           50
-#define LevelSample         100
+#define LevelSample         50
 #define DENSITY             1.3565
 #define sample              150 
+
 /* Wheel Definitions */
 #define PI                  3.1416
 #define WHEEL_DIAMETER      0.5842      // m
-#define WHEEL_HOLES_NUMBER_MB1  24
-//#define WHEEL_HOLES_NUMBER_MB2  12
-#define WHEEL_HOLES_NUMBER_MB2  24
+//#define WHEEL_HOLES_NUMBER_MB1  24
+#define WHEEL_HOLES_NUMBER_REAR   12
+#define WHEEL_HOLES_NUMBER_FRONT  24
+
 /* Servo definitions */
 #define MID_MODE            0x00
 #define RUN_MODE            0x01
