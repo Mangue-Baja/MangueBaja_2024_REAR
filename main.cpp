@@ -93,8 +93,8 @@ float SystemCurrent_moving_average();
 void writeServo(uint8_t MODE);
 
 /* CAN Variables */
-uint8_t temp_motor;                   // 1by
-uint16_t fuel;                        // 2by
+uint8_t temp_motor = 0;               // 1by
+uint16_t fuel = 0;                    // 2by
 uint16_t speed_display = 0;           // 2by
 uint8_t MeasureCVTtemperature = 0;    // 1by
 float MeasureVoltage = 0.0;           // 4by
@@ -183,7 +183,8 @@ int main ()
                 //serial.printf("fuel\r\n");
                 //fuel = 100;
 
-                fuel = (uint16_t)Level_Moving_Average();
+                //fuel = (uint16_t)Level_Moving_Average();
+                fuel = 100;
 
                 /* Send Fuel data */
                 txMsg.clear(FUEL_ID);
