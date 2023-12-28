@@ -1,6 +1,8 @@
 #ifndef REAR_DEFS_
 #define REAR_DEFS_
 
+#include "FIR.h"
+
 /* Moving Average Definitions */
 //#define VCC                 3.3
 #define ADCVoltageLimit     3.3
@@ -12,8 +14,8 @@
 #define sample              150 
 
 /* Wheel Definitions */
-#define PI                  3.1416
-#define WHEEL_DIAMETER      0.5842      // m
+#define PI                        3.1416
+#define WHEEL_DIAMETER            0.5842      // m
 //#define WHEEL_HOLES_NUMBER_MB1  24
 #define WHEEL_HOLES_NUMBER_REAR   12
 #define WHEEL_HOLES_NUMBER_FRONT  24

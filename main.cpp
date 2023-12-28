@@ -61,12 +61,14 @@ Ticker ticker5Hz;
 Timer t;
 bool buffer_full = false;
 /* Global variables */
+FIR filter(0.595, 0.595);
 state_t current_state = IDLE_ST;
 //float Calculate_VacsI0 = 0.0;
 bool switch_clicked = false;
 uint8_t pulse_counter = 0;
 uint8_t switch_state = 0x00;
 //uint16_t SignalVacsI0;
+uint16_t SPEED = 0;
 uint64_t current_period = 0, last_count = 0, last_acq = 0;
 float calc1, calc2;
 float V_termistor = 0;
@@ -214,10 +216,11 @@ int main ()
                 #endif
 
                 //speed_radio = ((float)((speed_display)/60.0)*65535);
+                SPEED = (uint16_t)filter.filt(speed_display);
 
                 /* Send Speed data */
                 txMsg.clear(SPEED_ID);
-                txMsg << speed_display;
+                txMsg << SPEED;
                 if(can.write(txMsg))
                     led = !led;
 
