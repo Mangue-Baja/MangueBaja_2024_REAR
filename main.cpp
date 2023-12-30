@@ -28,9 +28,9 @@
 #define REAR_WHEEL
 
 /* Communication protocols */
-CAN can(PB_8, PB_9, 1000000);       //RD, TD, Frequency
-Serial serial(PA_2, PA_3, 115200);  //TX, RX, Baudrate
-I2C i2c(PB_7, PB_6);                //SDA, SCl
+CAN can(PB_8, PB_9, 1000000);       // RD, TD, Frequency
+Serial serial(PA_2, PA_3, 115200);  // TX, RX, Baudrate
+I2C i2c(PB_7, PB_6);                // SDA, SCl
 
 /* I/O pins */
 InterruptIn freq_sensor(PB_1, PullNone);
@@ -68,9 +68,9 @@ bool switch_clicked = false;
 uint8_t pulse_counter = 0;
 uint8_t switch_state = 0x00;
 //uint16_t SignalVacsI0;
-uint16_t SPEED = 0;
+uint16_t speed_display = 0;
 uint64_t current_period = 0, last_count = 0, last_acq = 0;
-float calc1, calc2;
+//float calc1, calc2;
 float V_termistor = 0;
 float speed_hz = 0;
 
@@ -97,13 +97,13 @@ void writeServo(uint8_t MODE);
 /* CAN Variables */
 uint8_t temp_motor = 0;               // 1by
 uint16_t fuel = 0;                    // 2by
-uint16_t speed_display = 0;           // 2by
+uint16_t speed_filt = 0;              // 2by
 uint8_t MeasureCVTtemperature = 0;    // 1by
 float MeasureVoltage = 0.0;           // 4by
 uint8_t SOC = 0;                      // 1by
 float MeasureSystemCurrent = 0.0;     // 4by
 
-int main ()
+int main()
 {
     /* Main variables */
     CANMsg txMsg;
@@ -151,17 +151,19 @@ int main ()
                 //serial.printf("motor\r\n");
                 V_termistor = ADCVoltageLimit*ReadTempMotor.read();
 
-                calc1 = (float)115.5*(exp(-0.02187*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
-                calc2 = (float)85.97*(exp(-0.00146*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
+                //calc1 = (float)115.5*(exp(-0.02187*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
+                //calc2 = (float)85.97*(exp(-0.00146*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
+                temp_motor = (float)115.5*(exp(-0.02187*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)))
+                           + (float)85.97*(exp(-0.00146*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
 
-                if(calc1!=0 && calc2!=0)
-                    temp_motor = (uint8_t)(calc1 + calc2);
-                else 
-                    temp_motor = 1; // Debug temperature for sure the state is ok!
+                //if(calc1!=0 && calc2!=0)
+                //    temp_motor = (uint8_t)(calc1 + calc2);
+                //else 
+                //    temp_motor = 1; // Debug temperature for sure the state is ok!
 
                 /* Send Motor Temperature data */
                 txMsg.clear(TEMPERATURE_ID);
-                txMsg << temp_motor;
+                txMsg << (temp_motor==0 ? 1 : temp_motor);
                 can.write(txMsg);
 
                 break;
@@ -203,7 +205,10 @@ int main ()
                 if (current_period!=0)
                 {
                     speed_hz = 1000000*((float)(pulse_counter)/current_period);    //calculates frequency in Hz
-                } else {
+                } 
+                
+                else 
+                {
                     speed_hz = 0;
                 }
 
@@ -216,11 +221,11 @@ int main ()
                 #endif
 
                 //speed_radio = ((float)((speed_display)/60.0)*65535);
-                SPEED = (uint16_t)filter.filt(speed_display);
+                speed_filt = (uint16_t)filter.filt(speed_display);
 
                 /* Send Speed data */
                 txMsg.clear(SPEED_ID);
-                txMsg << SPEED;
+                txMsg << speed_filt;
                 if(can.write(txMsg))
                     led = !led;
 
@@ -296,8 +301,14 @@ int main ()
 
             case DEBUG_ST:
                 //serial.printf("Debug state\r\n");
-                //serial.printf("\r\nTemperature Motor = %d\r\n", temp_motor);
-                //serial.printf("switch state = %d", switch_state);
+                //serial.printf("Temperature Motor = %d\r\n", temp_motor);
+                //serial.printf("CVT Temperature = %d\r\n", MeasureCVTtemperature);
+                //serial.printf("Fuel Level = %d\r\n", fuel);
+                //serial.printf("Speed = %d\r\n", SPEED);
+                //serial.printf("Voltage = %f\r\n", MeasureVoltage);
+                //serial.printf("SOC = %d\r\n", SOC);
+                //serial.printf("Current = %f\r\n", MeasureSystemCurrent);
+                //serial.printf("switch state = %d\r\n", switch_state);
                 break;
         }
     }
@@ -307,7 +318,7 @@ int main ()
 void initPWM()
 {
     servo.period_ms(20);                        // set signal frequency to 50Hz
-    servo.write(0);                          // disables servo
+    servo.write(0);                             // disables servo
     signal.period_ms(32);                       // set signal frequency to 1/0.032Hz
     signal.write(0.5f);                         // dutycycle 50%
 }
@@ -317,6 +328,7 @@ void setupInterrupts()
     /* General Interrupts */
     can.attach(&canISR, CAN::RxIrq);
     freq_sensor.fall(&frequencyCounterISR); // enable interrupt
+
     /* Tickers */
     ticker1Hz.attach(&ticker1HzISR, 1.0);
     ticker5Hz.attach(&ticker5HzISR, 0.2);
@@ -360,7 +372,10 @@ float CVT_Temperature()
                 AverageObjectTemp = med_obj;
         }
     }
- } else {
+ } 
+ 
+ else 
+ {
     AverageObjectTemp = 0;
  }
 
@@ -385,7 +400,10 @@ float Level_Moving_Average()
                 P = ((7171*Vout)-5566)*DENSITY;
 
                 x_level += P;
-            } else {
+            } 
+             
+            else 
+            {
                 med_level = 0;
             }                
         }
@@ -420,15 +438,14 @@ float Voltage_moving_average()
             ADCvoltage = Calibration_Factor*(InputVoltage / (R2_Value/(R1_Value + R2_Value)));
             aux += ADCvoltage;
         }
+        value = aux/(float)sample;
         
-            value = aux/(float)sample;
-        
-            if(value > AverageVoltage) 
-                AverageVoltage = value;
+        if(value > AverageVoltage) 
+            AverageVoltage = value;
     }
 
     //return value;
-    return AverageVoltage/(double)sample; // I don't know why we need divide by sample, but works.
+    return AverageVoltage/(float)sample; // I don't know why we need divide by sample, but works.
 }
 
 float SystemCurrent_moving_average()

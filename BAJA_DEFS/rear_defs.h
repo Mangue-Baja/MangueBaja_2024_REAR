@@ -1,10 +1,11 @@
 #ifndef REAR_DEFS_
 #define REAR_DEFS_
 
-#include "FIR.h"
+/*====================*/
+    #include "FIR.h"
+/*====================*/
 
 /* Moving Average Definitions */
-//#define VCC                 3.3
 #define ADCVoltageLimit     3.3
 #define SensorADClimit      3.2
 #define R_TERM              1000
@@ -30,15 +31,15 @@
 
 typedef enum
 {
-    IDLE_ST,            // wait
-    TEMP_MOTOR_ST,      // measure temperature of motor
-    TEMP_CVT_ST,        // measure temperature of CVT
-    FUEL_ST,            // proccess fuel data sampling
-    SPEED_ST,           // calculate speed
-    VOLTAGE_ST,         // calculate State of Charge and battery voltage
-    SYSTEM_CURRENT_ST,  // measure the current of the system
-    THROTTLE_ST,        // write throttle position (PWM)
-    DEBUG_ST            // send data for debug
+    IDLE_ST,            // Wait
+    TEMP_MOTOR_ST,      // Measure temperature of motor
+    TEMP_CVT_ST,        // Measure temperature of CVT
+    FUEL_ST,            // Proccess fuel data sampling
+    SPEED_ST,           // Calculate speed
+    VOLTAGE_ST,         // Calculate State of Charge and battery voltage
+    SYSTEM_CURRENT_ST,  // Measure the current of the system
+    THROTTLE_ST,        // Write throttle position (PWM)
+    DEBUG_ST            // Send data for debug
 
 } state_t;
 
