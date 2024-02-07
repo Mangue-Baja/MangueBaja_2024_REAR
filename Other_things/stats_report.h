@@ -4,7 +4,7 @@
  */
 
 #ifndef STATS_REPORT_H
-#define STATS_REPORT
+#define STATS_REPORT_H
 
 #include "mbed.h"
 
