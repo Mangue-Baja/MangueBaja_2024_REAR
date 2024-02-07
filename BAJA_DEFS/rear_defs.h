@@ -1,17 +1,15 @@
 #ifndef REAR_DEFS_
 #define REAR_DEFS_
 
-/*====================*/
-    #include "FIR.h"
-/*====================*/
+#include "FIR.h"
 
 /* Moving Average Definitions */
 #define ADCVoltageLimit     3.3
-#define SensorADClimit      3.2
+//#define SensorADClimit      3.2
 #define R_TERM              1000
 #define CVTsample           50
-#define LevelSample         50
-#define DENSITY             1.3565
+//define LevelSample         50
+//#define DENSITY             1.3565
 #define sample              150 
 
 /* Wheel Definitions */
