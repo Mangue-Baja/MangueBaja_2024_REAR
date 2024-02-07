@@ -1,15 +1,3 @@
-/*  
-    IDLE_ST E DEBUG_ST obrigatorios
-        * REAR: TEMP_MOTOR_ST, FUEL_ST, RPM_ST, THROTTLE_ST, RADIO_ST
-        * FRONT: SLOWACQ_ST, IMU_ST, SPEED_ST, THROTTLE_ST, DISPLAY_ST
-        * BMU: Voltage_ST, TEMP_CVT_ST, SystemCurrent_ST
-*/
-
-/*
-    Novos:
-        * REAR:  TEMP_MOTOR_ST, FUEL_ST, TEMP_CVT_ST, SPEED_ST, SystemCurrent_ST, Voltage_ST, THROTTLE_ST
-        * FRONT: THROTTLE_ST, RADIO_ST, IMU_ST, RPM_ST, FLAGS_ST, DISPLAY_ST
-*/
 #include "mbed.h"
 #include "stats_report.h"
 /* Instances Libraries */
@@ -33,16 +21,16 @@ Serial serial(PA_2, PA_3, 115200);  // TX, RX, Baudrate
 I2C i2c(PB_7, PB_6);                // SDA, SCl
 
 /* I/O pins */
-InterruptIn freq_sensor(PB_1, PullNone);
+InterruptIn freq_sensor(PB_4, PullNone);
 AnalogIn ReadTempMotor(PA_0);
-AnalogIn ReadLevel(PA_1);
-AnalogIn ReadVoltage(PA_4);                
+//AnalogIn ReadLevel(PA_1);
+AnalogIn ReadVoltage(PA_7);                
 AnalogIn ReadSystemCurrent(PB_0); 
-PwmOut servo(PA_6);
+//PwmOut servo(PA_5);
 DigitalOut led(PC_13);
 /* Debug pins */
-PwmOut signal(PA_7);
-DigitalOut db(PB_11);
+//PwmOut signal(PA_7);
+//DigitalOut db(PA_6);
 
 /* Instances Variables */
 MLX90614 mlx(&i2c);
@@ -96,7 +84,7 @@ void writeServo(uint8_t MODE);
 
 /* CAN Variables */
 uint8_t temp_motor = 0;               // 1by
-uint16_t fuel = 0;                    // 2by
+//uint16_t fuel = 0;                    // 2by
 uint16_t speed_filt = 0;              // 2by
 uint8_t MeasureCVTtemperature = 0;    // 1by
 float MeasureVoltage = 0.0;           // 4by
@@ -177,9 +165,9 @@ int main()
                 /* Send CVT Temperature message */
                 txMsg.clear(CVT_ID);
                 txMsg << MeasureCVTtemperature;
-                //can.write(txMsg);
-                if(can.write(txMsg))
-                    led = !led;
+                can.write(txMsg);
+                //if(can.write(txMsg))
+                //    led = !led;
                 
                 break;
 
@@ -188,12 +176,12 @@ int main()
                 //fuel = 100;
 
                 //fuel = (uint16_t)Level_Moving_Average();
-                fuel = 100;
+                //fuel = 100;
 
-                /* Send Fuel data */
-                txMsg.clear(FUEL_ID);
-                txMsg << fuel;
-                can.write(txMsg); 
+                ///* Send Fuel data */
+                //txMsg.clear(FUEL_ID);
+                //txMsg << fuel;
+                //can.write(txMsg); 
 
                 break;
 
@@ -221,13 +209,14 @@ int main()
                 #endif
 
                 //speed_radio = ((float)((speed_display)/60.0)*65535);
-                speed_filt = (uint16_t)filter.filt(speed_display);
+                //speed_filt = (uint16_t)filter.filt(speed_display);
 
                 /* Send Speed data */
                 txMsg.clear(SPEED_ID);
-                txMsg << speed_filt;
-                if(can.write(txMsg))
-                    led = !led;
+                txMsg << speed_display/*speed_filt*/;
+                can.write(txMsg);
+                //if(can.write(txMsg))
+                //    led = !led;
 
                 /* re-init the counter */
                 pulse_counter = 0;                          
@@ -263,7 +252,7 @@ int main()
                 if(can.write(txMsg)) 
                 {
                     /* Send SOC(State of Charge) message if voltage successfully */
-                    led = !led;
+                    //led = !led;
 
                     txMsg.clear(SOC_ID);
                     txMsg << SOC;
@@ -283,8 +272,9 @@ int main()
                 /* Send current message */
                 txMsg.clear(CURRENT_ID);
                 txMsg << MeasureSystemCurrent;
-                if(can.write(txMsg))
-                    led = !led;
+                can.write(txMsg);
+                //if(can.write(txMsg))
+                //    led = !led;
 
                 break;
 
@@ -317,10 +307,10 @@ int main()
 /* General functions */
 void initPWM()
 {
-    servo.period_ms(20);                        // set signal frequency to 50Hz
-    servo.write(0);                             // disables servo
-    signal.period_ms(32);                       // set signal frequency to 1/0.032Hz
-    signal.write(0.5f);                         // dutycycle 50%
+    // servo.period_ms(20);                        // set signal frequency to 50Hz
+    // servo.write(0);                             // disables servo
+    // signal.period_ms(32);                       // set signal frequency to 1/0.032Hz
+    // signal.write(0.5f);                         // dutycycle 50%
 }
 
 void setupInterrupts()
@@ -383,7 +373,7 @@ float CVT_Temperature()
     return AverageObjectTemp/(float)CVTsample; // I don't know why we need divide by sample, but works.
 }
 
-float Level_Moving_Average()
+/*float Level_Moving_Average()
 {
     float AverageLevel=0;
     float Vout, P;
@@ -391,22 +381,22 @@ float Level_Moving_Average()
 
     for(uint8_t i = 0; i < LevelSample; i++)
     {
-        for(uint8_t j = 0; j < LevelSample; j++)
-        {
-            Vout = (ReadLevel.read_u16()*ADCVoltageLimit)/65535.0; 
-            if(Vout < SensorADClimit)
-            {
+        // for(uint8_t j = 0; j < LevelSample; j++)
+        // {
+        //     Vout = (ReadLevel.read_u16()*ADCVoltageLimit)/65535.0; 
+        //     if(Vout < SensorADClimit)
+        //     {
                 
-                P = ((7171*Vout)-5566)*DENSITY;
+        //         P = ((7171*Vout)-5566)*DENSITY;
 
-                x_level += P;
-            } 
+        //         x_level += P;
+        //     } 
              
-            else 
-            {
-                med_level = 0;
-            }                
-        }
+        //     else 
+        //     {
+        //         med_level = 0;
+        //     }                
+        // }
         med_level = x_level/(float)LevelSample;
 
         if(med_level > AverageLevel)
@@ -414,7 +404,7 @@ float Level_Moving_Average()
     }
 
     return AverageLevel/(float)LevelSample; // I don't know why we need divide by sample, but works.
-}
+}*/
 
 float Voltage_moving_average()
 {
@@ -450,13 +440,6 @@ float Voltage_moving_average()
 
 float SystemCurrent_moving_average()
 {   
-    /*
-    #ifdef ECU_MAIN
-        float VacsI0 = 1.558008;   //BMU SOLDADA
-    #else
-        float VacsI0 = 1.57602;     // BMU Socket
-    #endif
-    */
     int i, j;
     float value, ux, InputSystemCurrent, AverageSystemCurrent, ADCSystemCurrent = 0.0;
     uint16_t SignalCurrent = 0.0;
@@ -486,24 +469,24 @@ void writeServo(uint8_t MODE)
 {
     switch(MODE) 
     {
-        case MID_MODE:
-            servo.pulsewidth_us(SERVO_MID);
-            //data.flags &= ~(0x03); // reset run and choke flags
-            break;
+        // case MID_MODE:
+        //     servo.pulsewidth_us(SERVO_MID);
+        //     //data.flags &= ~(0x03); // reset run and choke flags
+        //     break;
 
-        case RUN_MODE:  
-            servo.pulsewidth_us(SERVO_RUN);
-            //data.flags |= RUN_MODE;    // set run flag
-            break;
+        // case RUN_MODE:  
+        //     servo.pulsewidth_us(SERVO_RUN);
+        //     //data.flags |= RUN_MODE;    // set run flag
+        //     break;
 
-        case CHOKE_MODE:
-            servo.pulsewidth_us(SERVO_CHOKE);
-            //data.flags |= CHOKE_MODE;    // set choke flag
-            break;
+        // case CHOKE_MODE:
+        //     servo.pulsewidth_us(SERVO_CHOKE);
+        //     //data.flags |= CHOKE_MODE;    // set choke flag
+        //     break;
 
-        default:
-            //serial.printf("Choke/run error\r\n");
-            break;
+        // default:
+        //     //serial.printf("Choke/run error\r\n");
+        //     break;
     }
 }
 
@@ -525,7 +508,7 @@ void frequencyCounterISR()
 void ticker200mHzISR()
 {
     state_buffer.push(VOLTAGE_ST);
-    state_buffer.push(FUEL_ST);
+    //state_buffer.push(FUEL_ST);
 }
 
 void ticker250mHzISR()
@@ -545,7 +528,7 @@ void ticker1HzISR()
     state_buffer.push(TEMP_CVT_ST);
 
     state_buffer.push(VOLTAGE_ST);
-    state_buffer.push(FUEL_ST);
+    //state_buffer.push(FUEL_ST);
 
     state_buffer.push(SYSTEM_CURRENT_ST);
 
