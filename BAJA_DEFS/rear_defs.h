@@ -1,5 +1,5 @@
-#ifndef REAR_DEFS_
-#define REAR_DEFS_
+#ifndef REAR_DEFS_H
+#define REAR_DEFS_H
 
 #include "FIR.h"
 
