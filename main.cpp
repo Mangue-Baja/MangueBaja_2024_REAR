@@ -21,12 +21,12 @@ Serial serial(PA_2, PA_3, 115200);  // TX, RX, Baudrate
 I2C i2c(PB_7, PB_6);                // SDA, SCl
 
 /* I/O pins */
-InterruptIn freq_sensor(PB_4, PullNone);
+InterruptIn freq_sensor(PA_6, PullNone);
 AnalogIn ReadTempMotor(PA_0);
 //AnalogIn ReadLevel(PA_1);
 AnalogIn ReadVoltage(PA_7);                
 AnalogIn ReadSystemCurrent(PB_0); 
-//PwmOut servo(PA_5);
+PwmOut servo(PB_1);
 DigitalOut led(PC_13);
 /* Debug pins */
 //PwmOut signal(PA_7);
@@ -307,10 +307,10 @@ int main()
 /* General functions */
 void initPWM()
 {
-    // servo.period_ms(20);                        // set signal frequency to 50Hz
-    // servo.write(0);                             // disables servo
-    // signal.period_ms(32);                       // set signal frequency to 1/0.032Hz
-    // signal.write(0.5f);                         // dutycycle 50%
+    servo.period_ms(20);                        // set signal frequency to 50Hz
+    servo.write(0);                             // disables servo
+    //signal.period_ms(32);                       // set signal frequency to 1/0.032Hz
+    //signal.write(0.5f);                         // dutycycle 50%
 }
 
 void setupInterrupts()
@@ -329,7 +329,7 @@ void filterMessage(CANMsg msg)
 {
     led = !led;
 
-    if(msg.id==THROTTLE_ID)
+    if(msg.id == THROTTLE_ID)
     {
         switch_clicked = true;
         msg >> switch_state;
@@ -456,7 +456,6 @@ float SystemCurrent_moving_average()
             ADCSystemCurrent = (VacsI0 - InputSystemCurrent) / 0.185;
             ux += ADCSystemCurrent;
         }       
-            
         value = (ux * Current_Calibration_Factor)/((float)sample*4);
         //value = (ux * 1.746)  / ((double)sample*4);
     }
@@ -469,24 +468,21 @@ void writeServo(uint8_t MODE)
 {
     switch(MODE) 
     {
-        // case MID_MODE:
-        //     servo.pulsewidth_us(SERVO_MID);
-        //     //data.flags &= ~(0x03); // reset run and choke flags
-        //     break;
-
-        // case RUN_MODE:  
-        //     servo.pulsewidth_us(SERVO_RUN);
-        //     //data.flags |= RUN_MODE;    // set run flag
-        //     break;
-
-        // case CHOKE_MODE:
-        //     servo.pulsewidth_us(SERVO_CHOKE);
-        //     //data.flags |= CHOKE_MODE;    // set choke flag
-        //     break;
-
-        // default:
-        //     //serial.printf("Choke/run error\r\n");
-        //     break;
+        case MID_MODE:
+            servo.pulsewidth_us(SERVO_MID);
+            //data.flags &= ~(0x03); // reset run and choke flags
+            break;
+        case RUN_MODE:  
+            servo.pulsewidth_us(SERVO_RUN);
+            //data.flags |= RUN_MODE;    // set run flag
+            break;
+        case CHOKE_MODE:
+            servo.pulsewidth_us(SERVO_CHOKE);
+            //data.flags |= CHOKE_MODE;    // set choke flag
+            break;
+        default:
+            //serial.printf("Choke/run error\r\n");
+            break;
     }
 }
 
