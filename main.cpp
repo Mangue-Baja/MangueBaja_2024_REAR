@@ -144,10 +144,6 @@ int main()
                 temp_motor = (float)115.5*(exp(-0.02187*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)))
                            + (float)85.97*(exp(-0.00146*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
 
-                //if(calc1!=0 && calc2!=0)
-                //    temp_motor = (uint8_t)(calc1 + calc2);
-                //else 
-                //    temp_motor = 1; // Debug temperature for sure the state is ok!
 
                 /* Send Motor Temperature data */
                 txMsg.clear(TEMPERATURE_ID);
@@ -333,6 +329,8 @@ void filterMessage(CANMsg msg)
     {
         switch_clicked = true;
         msg >> switch_state;
+        /* Servo priority */
+        state_buffer.reset();
         state_buffer.push(THROTTLE_ST);
     }
 }
