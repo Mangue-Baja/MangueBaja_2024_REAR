@@ -48,8 +48,9 @@ Ticker ticker5Hz;
 /* Debug variables */
 Timer t;
 bool buffer_full = false;
+int as = 0;
 /* Global variables */
-FIR filter(0.595, 0.595);
+FIR filter(0.575, 0.575);
 state_t current_state = IDLE_ST;
 //float Calculate_VacsI0 = 0.0;
 bool switch_clicked = false;
@@ -117,16 +118,6 @@ int main()
                 current_state = IDLE_ST;
         }
 
-        //serial.printf("current state = %d\r\n", current_state);
-        //if(current_state==0) serial.printf("IDLE_ST\n");
-        //if(current_state==1) serial.printf("TEMP_MOTOR_ST\n");
-        //if(current_state==2) serial.printf("TEMP_CVT_ST\n");
-        //if(current_state==3) serial.printf("FUEL_ST\n");
-        //if(current_state==4) serial.printf("SPEED_ST\n");
-        //if(current_state==5) serial.printf("VOLTAGE_ST\n");
-        //if(current_state==6) serial.printf("SYSTEM_CURRENT_ST\n");
-        //if(current_state==7) serial.printf("THROTTLE_ST\n");
-        //if(current_state==8) serial.printf("DEBUG_ST\n");
 
         switch(current_state) 
         {
@@ -137,6 +128,7 @@ int main()
 
             case TEMP_MOTOR_ST:
                 //serial.printf("motor\r\n");
+
                 V_termistor = ADCVoltageLimit*ReadTempMotor.read();
 
                 //calc1 = (float)115.5*(exp(-0.02187*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
@@ -182,8 +174,8 @@ int main()
                 break;
 
             case SPEED_ST:
-                //serial.printf("s\n");
-                //dbg2 = !dbg2;
+                //serial.printf("speed\r\n");
+
                 freq_sensor.fall(NULL);         // disable interrupt
 
                 if (current_period!=0)
@@ -205,11 +197,11 @@ int main()
                 #endif
 
                 //speed_radio = ((float)((speed_display)/60.0)*65535);
-                //speed_filt = (uint16_t)filter.filt(speed_display);
+                speed_filt = (uint16_t)filter.filt(speed_display);
 
                 /* Send Speed data */
                 txMsg.clear(SPEED_ID);
-                txMsg << speed_display/*speed_filt*/;
+                txMsg << speed_filt;
                 can.write(txMsg);
                 //if(can.write(txMsg))
                 //    led = !led;
@@ -218,9 +210,9 @@ int main()
                 pulse_counter = 0;                          
                 current_period = 0;                         //|-> reset pulses related variables
                 last_count = t.read_us();        
-                freq_sensor.fall(&frequencyCounterISR);     // enable interrupt
+                freq_sensor.fall(&frequencyCounterISR);     // enable interrupt                
 
-                break;
+                break;    
 
             case VOLTAGE_ST:
                 //serial.printf("voltage\r\n");
@@ -251,7 +243,7 @@ int main()
                     //led = !led;
 
                     txMsg.clear(SOC_ID);
-                    txMsg << SOC;
+                    txMsg << (SOC > 100 ? 5 : SOC);
                     can.write(txMsg);
                 }
 
@@ -272,11 +264,12 @@ int main()
                 //if(can.write(txMsg))
                 //    led = !led;
 
+
                 break;
 
             case THROTTLE_ST:
-                //serial.printf("throttle state\r\n");
-                
+                //serial.printf("throttle\r\n");
+
                 if(switch_clicked)
                 {
                     writeServo(switch_state);
@@ -295,6 +288,7 @@ int main()
                 //serial.printf("SOC = %d\r\n", SOC);
                 //serial.printf("Current = %f\r\n", MeasureSystemCurrent);
                 //serial.printf("switch state = %d\r\n", switch_state);
+                //serial.printf("\n\n\n");
                 break;
         }
     }
@@ -329,8 +323,7 @@ void filterMessage(CANMsg msg)
     {
         switch_clicked = true;
         msg >> switch_state;
-        /* Servo priority */
-        state_buffer.reset();
+        //state_buffer.reset();
         state_buffer.push(THROTTLE_ST);
     }
 }
@@ -339,36 +332,33 @@ float CVT_Temperature()
 {
     int i, j;
     float AverageObjectTemp, AverageEnviromentTemp = 0.0;
-    float temp_amb, med_amb, x_amb;
-    float temp_obj, med_obj, x_obj; 
+    float temp_amb, med_amb, x_amb, x_obj, med_obj;
+    char ucdata_write[2]; // teste comunicação i2c
 
-    //teste comunicação i2c
-    char ucdata_write[2];
+    if(!i2c.write((default_addr|0x00), ucdata_write, 1, 0)) // Check for ACK from i2c Device
+    {
+        for(j = 0; j < (sample); j++) 
+        { 
+            for(i = 0; i < (sample) ; i++) 
+            {              
+                // temp_amb = mlx.read_temp(0);
+                //temp_obj = mlx.read_temp(1);
+                x_obj += mlx.read_temp(1);
+                med_obj = x_obj/(float)sample;
 
- if(!i2c.write((default_addr|0x00), ucdata_write, 1, 0)) // Check for ACK from i2c Device
- {
-    for(j = 0; j < (CVTsample); j++) 
-    { 
-        for(i = 0; i < (CVTsample) ; i++) 
-        {              
-            // temp_amb = mlx.read_temp(0);
-            temp_obj = mlx.read_temp(1);
-            x_obj += temp_obj;
-            med_obj = x_obj/(float)CVTsample;
-
-            if(med_obj > AverageObjectTemp)
-                AverageObjectTemp = med_obj;
+                if(med_obj > AverageObjectTemp)
+                    AverageObjectTemp = med_obj;
+            }
         }
+    } 
+    
+    else 
+    {
+        AverageObjectTemp = 0;
     }
- } 
- 
- else 
- {
-    AverageObjectTemp = 0;
- }
 
     //return value;
-    return AverageObjectTemp/(float)CVTsample; // I don't know why we need divide by sample, but works.
+    return AverageObjectTemp/(float)sample; // I don't know why we need divide by sample, but works.
 }
 
 /*float Level_Moving_Average()
@@ -408,21 +398,17 @@ float Voltage_moving_average()
 {
     int i, j;
     float value, aux, ADCvoltage , InputVoltage, AverageVoltage = 0.0;
-    uint16_t SignalVoltage = 0.0;
     //float Calibration_Factor = 0.987;
     //float Calibration_Factor = 0.715;
-    float Calibration_Factor = 1;
+    float Calibration_Factor = 1.0674;
     float R1_Value = 30000.0;               // VALOR DO RESISTOR 1 DO DIVISOR DE TENSÃO
     float R2_Value = 7500.0;                // VALOR DO RESISTOR 2 DO DIVISOR DE TENSÃO
 
-
     for(j = 0; j < (sample); j++) 
     { 
-        for(i = 0; i < sample ; i++) 
+        for(i = 0; i < (sample) ; i++) 
         {
-
-            SignalVoltage = ReadVoltage.read_u16();
-            InputVoltage = (SignalVoltage * ADCVoltageLimit) / 65535.0;
+            InputVoltage = (float)((ReadVoltage.read_u16() * ADCVoltageLimit) / 65535.0);
             ADCvoltage = Calibration_Factor*(InputVoltage / (R2_Value/(R1_Value + R2_Value)));
             aux += ADCvoltage;
         }
@@ -433,24 +419,22 @@ float Voltage_moving_average()
     }
 
     //return value;
-    return AverageVoltage/(float)sample; // I don't know why we need divide by sample, but works.
+    return AverageVoltage/(float)(sample); // I don't know why we need divide by sample, but works.
 }
 
 float SystemCurrent_moving_average()
 {   
     int i, j;
     float value, ux, InputSystemCurrent, AverageSystemCurrent, ADCSystemCurrent = 0.0;
-    uint16_t SignalCurrent = 0.0;
     // float Current_Calibration_Factor = 1.746;
     float Current_Calibration_Factor = 1.631;
     float VacsI0 = 1.558008;
 
     for(j = 0; j < (sample); j++)
     { 
-        for(i = 0; i < (sample)*4 ; i++) 
+        for(i = 0; i < (sample) ; i++) 
         {
-            SignalCurrent = ReadSystemCurrent.read_u16();
-            InputSystemCurrent = (SignalCurrent * (ADCVoltageLimit / 65535.0));
+            InputSystemCurrent = (float)(ReadSystemCurrent.read_u16() * (ADCVoltageLimit / 65535.0));
             ADCSystemCurrent = (VacsI0 - InputSystemCurrent) / 0.185;
             ux += ADCSystemCurrent;
         }       
