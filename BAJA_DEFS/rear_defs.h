@@ -5,12 +5,9 @@
 
 /* Moving Average Definitions */
 #define ADCVoltageLimit     3.3
-//#define SensorADClimit      3.2
 #define R_TERM              1000
-//#define CVTsample           50
-//define LevelSample         50
-//#define DENSITY             1.3565
 #define sample              25 
+//#define DENSITY             1.3565
 
 /* Wheel Definitions */
 #define PI                        3.1416

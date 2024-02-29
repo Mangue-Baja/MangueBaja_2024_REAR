@@ -9,7 +9,7 @@
 
 #define default_addr (0x00)
 
-//#define MB1                   // uncomment this line if MB1
+//#define MB1                 // uncomment this line if MB1
 //#define MB2                 // uncomment this line if MB2
 
 //#define FRONT_WHEEL
@@ -21,16 +21,16 @@ Serial serial(PA_2, PA_3, 115200);  // TX, RX, Baudrate
 I2C i2c(PB_7, PB_6);                // SDA, SCl
 
 /* I/O pins */
-InterruptIn freq_sensor(PA_6, PullNone);
+InterruptIn freq_sensor(PB_1, PullNone);
 AnalogIn ReadTempMotor(PA_0);
 //AnalogIn ReadLevel(PA_1);
-AnalogIn ReadVoltage(PA_7);                
+AnalogIn ReadVoltage(PA_4);                
 AnalogIn ReadSystemCurrent(PB_0); 
-PwmOut servo(PB_1);
+PwmOut servo(PA_6);
 DigitalOut led(PC_13);
 /* Debug pins */
-//PwmOut signal(PA_7);
-//DigitalOut db(PA_6);
+PwmOut signal(PA_7);
+DigitalOut db(PB_11);
 
 /* Instances Variables */
 MLX90614 mlx(&i2c);
@@ -48,9 +48,8 @@ Ticker ticker5Hz;
 /* Debug variables */
 Timer t;
 bool buffer_full = false;
-int as = 0;
 /* Global variables */
-FIR filter(0.575, 0.575);
+FIR filter(0.5, 0.5);
 state_t current_state = IDLE_ST;
 //float Calculate_VacsI0 = 0.0;
 bool switch_clicked = false;
@@ -59,7 +58,6 @@ uint8_t switch_state = 0x00;
 //uint16_t SignalVacsI0;
 uint16_t speed_display = 0;
 uint64_t current_period = 0, last_count = 0, last_acq = 0;
-//float calc1, calc2;
 float V_termistor = 0;
 float speed_hz = 0;
 
@@ -78,7 +76,7 @@ void initPWM();
 void setupInterrupts();
 void filterMessage(CANMsg msg);
 float CVT_Temperature();
-float Level_Moving_Average();
+//float Level_Moving_Average();
 float Voltage_moving_average();
 float SystemCurrent_moving_average();
 void writeServo(uint8_t MODE);
@@ -282,8 +280,7 @@ int main()
                 //serial.printf("Debug state\r\n");
                 //serial.printf("Temperature Motor = %d\r\n", temp_motor);
                 //serial.printf("CVT Temperature = %d\r\n", MeasureCVTtemperature);
-                //serial.printf("Fuel Level = %d\r\n", fuel);
-                //serial.printf("Speed = %d\r\n", SPEED);
+                //serial.printf("Speed = %d\r\n", speed_filt);
                 //serial.printf("Voltage = %f\r\n", MeasureVoltage);
                 //serial.printf("SOC = %d\r\n", SOC);
                 //serial.printf("Current = %f\r\n", MeasureSystemCurrent);
@@ -299,8 +296,8 @@ void initPWM()
 {
     servo.period_ms(20);                        // set signal frequency to 50Hz
     servo.write(0);                             // disables servo
-    //signal.period_ms(32);                       // set signal frequency to 1/0.032Hz
-    //signal.write(0.5f);                         // dutycycle 50%
+    signal.period_ms(320);                      // set signal frequency to 1/0.032Hz
+    signal.write(0.5f);                         // dutycycle 50%
 }
 
 void setupInterrupts()
@@ -400,7 +397,7 @@ float Voltage_moving_average()
     float value, aux, ADCvoltage , InputVoltage, AverageVoltage = 0.0;
     //float Calibration_Factor = 0.987;
     //float Calibration_Factor = 0.715;
-    float Calibration_Factor = 1.0674;
+    float Calibration_Factor = 1.0;
     float R1_Value = 30000.0;               // VALOR DO RESISTOR 1 DO DIVISOR DE TENSÃO
     float R2_Value = 7500.0;                // VALOR DO RESISTOR 2 DO DIVISOR DE TENSÃO
 
@@ -486,7 +483,7 @@ void frequencyCounterISR()
 void ticker200mHzISR()
 {
     state_buffer.push(VOLTAGE_ST);
-    //state_buffer.push(FUEL_ST);
+    //state_buffer.push(DEBUG_ST);
 }
 
 void ticker250mHzISR()
