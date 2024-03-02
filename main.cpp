@@ -9,9 +9,6 @@
 
 #define default_addr (0x00)
 
-//#define MB1                 // uncomment this line if MB1
-//#define MB2                 // uncomment this line if MB2
-
 //#define FRONT_WHEEL
 #define REAR_WHEEL
 
@@ -133,7 +130,6 @@ int main()
                 //calc2 = (float)85.97*(exp(-0.00146*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
                 temp_motor = (float)115.5*(exp(-0.02187*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)))
                            + (float)85.97*(exp(-0.00146*(V_termistor*R_TERM)/(ADCVoltageLimit - V_termistor)));
-
 
                 /* Send Motor Temperature data */
                 txMsg.clear(TEMPERATURE_ID);
