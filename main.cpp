@@ -26,7 +26,7 @@ AnalogIn ReadSystemCurrent(PB_0);
 PwmOut servo(PA_6);
 DigitalOut led(PC_13);
 /* Debug pins */
-PwmOut signal(PA_7);
+//PwmOut signal(PA_7);
 DigitalOut db(PB_11);
 
 /* Instances Variables */
@@ -292,8 +292,8 @@ void initPWM()
 {
     servo.period_ms(20);                        // set signal frequency to 50Hz
     servo.write(0);                             // disables servo
-    signal.period_ms(320);                      // set signal frequency to 1/0.032Hz
-    signal.write(0.5f);                         // dutycycle 50%
+  //signal.period_ms(320);                      // set signal frequency to 1/0.032Hz
+  //signal.write(0.5f);                         // dutycycle 50%
 }
 
 void setupInterrupts()
@@ -447,7 +447,7 @@ void writeServo(uint8_t MODE)
             servo.pulsewidth_us(SERVO_MID);
             //data.flags &= ~(0x03); // reset run and choke flags
             break;
-        case RUN_MODE:  
+        case RUN_MODE:
             servo.pulsewidth_us(SERVO_RUN);
             //data.flags |= RUN_MODE;    // set run flag
             break;
