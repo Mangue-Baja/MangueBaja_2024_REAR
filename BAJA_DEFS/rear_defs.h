@@ -21,8 +21,8 @@
 #define RUN_MODE            0x01
 #define CHOKE_MODE          0x02
 #define SERVO_MID           1180
-#define SERVO_RUN           880
-#define SERVO_CHOKE         1480 //1000 -> 1200
+#define SERVO_RUN           800
+#define SERVO_CHOKE         1550
 
 typedef enum
 {
