@@ -1,10 +1,10 @@
+#include "defs.h"
 #include "mbed.h"
 #include "stats_report.h"
 /* Instances Libraries */
 #include "CANMsg.h"
 #include "MLX90614.h"
 /* User Libraries */
-#include "defs.h"
 #include "rear_defs.h"
 
 #define default_addr (0x00)
@@ -13,7 +13,7 @@
 #define REAR_WHEEL
 
 /* Communication protocols */
-CAN can(PB_8, PB_9, 1000000);       // RD, TD, Frequency
+CAN can(PB_8, PB_9, CAN_BPS_1000K);       // RD, TD, Frequency
 Serial serial(PA_2, PA_3, 115200);  // TX, RX, Baudrate
 I2C i2c(PB_7, PB_6);                // SDA, SCl
 
@@ -48,12 +48,14 @@ bool buffer_full = false;
 /* Global variables */
 FIR filter(0.5, 0.5);
 state_t current_state = IDLE_ST;
+packet_t data;
 //float Calculate_VacsI0 = 0.0;
 bool switch_clicked = false;
 uint8_t pulse_counter = 0;
 uint8_t switch_state = 0x00;
 //uint16_t SignalVacsI0;
 uint16_t speed_display = 0;
+uint16_t speed_filt = 0;              // 2by
 uint64_t current_period = 0, last_count = 0, last_acq = 0;
 float V_termistor = 0;
 float speed_hz = 0;
@@ -81,8 +83,8 @@ void writeServo(uint8_t MODE);
 /* CAN Variables */
 uint8_t temp_motor = 0;               // 1by
 //uint16_t fuel = 0;                    // 2by
-uint16_t speed_filt = 0;              // 2by
 uint8_t MeasureCVTtemperature = 0;    // 1by
+uint16_t speed = 0;
 float MeasureVoltage = 0.0;           // 4by
 uint8_t SOC = 0;                      // 1by
 float MeasureSystemCurrent = 0.0;     // 4by
@@ -193,9 +195,14 @@ int main()
                 //speed_radio = ((float)((speed_display)/60.0)*65535);
                 speed_filt = (uint16_t)filter.filt(speed_display);
 
+                if(data.rpm!=0)
+                    speed = speed_filt - 10;
+                else
+                    speed = speed_filt;
+
                 /* Send Speed data */
                 txMsg.clear(SPEED_ID);
-                txMsg << speed_filt;
+                txMsg << speed;
                 can.write(txMsg);
                 //if(can.write(txMsg))
                 //    led = !led;
@@ -292,8 +299,8 @@ void initPWM()
 {
     servo.period_ms(20);                        // set signal frequency to 50Hz
     servo.write(0);                             // disables servo
-  //signal.period_ms(320);                      // set signal frequency to 1/0.032Hz
-  //signal.write(0.5f);                         // dutycycle 50%
+    //signal.period_ms(320);                      // set signal frequency to 1/0.032Hz
+    //signal.write(0.5f);                         // dutycycle 50%
 }
 
 void setupInterrupts()
@@ -318,6 +325,11 @@ void filterMessage(CANMsg msg)
         msg >> switch_state;
         //state_buffer.reset();
         state_buffer.push(THROTTLE_ST);
+    }
+
+    if(msg.id == RPM_ID)
+    {
+        msg >> data.rpm;
     }
 }
 

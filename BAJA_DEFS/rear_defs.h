@@ -1,7 +1,11 @@
 #ifndef REAR_DEFS_H
 #define REAR_DEFS_H
 
+#include "mbed.h"
+#include "defs.h"
 #include "FIR.h"
+
+#define CAN_BPS_1000K       1000000
 
 /* Moving Average Definitions */
 #define ADCVoltageLimit     3.3
